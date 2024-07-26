@@ -1,155 +1,127 @@
-## Desenvolvido por Emanoel Vinícius 
-## Emanoelufpe@gmail.com
-
-
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import win32com.client
 import pythoncom
 import os
 
-def bounding(Lista):
-    x = Lista[::2]
-    y = Lista[1::2]
+# Função para calcular os limites do retângulo envolvente
+def bounding(coordinates):
+    x = coordinates[::2]
+    y = coordinates[1::2]
+    xmin, ymin, xmax, ymax = min(x), min(y), max(x), max(y)
+    return [xmin, ymin, xmax, ymax]
 
-    xmin = min(x)
-    ymin = min(y)
-    xmax = max(x)
-    ymax = max(y)
-    borde = [xmin, ymin, xmax, ymax]
-
-    return borde
-
-def SPOINT(x, y):
+# Função para criar um objeto de ponto para o AutoCAD
+def create_point_object(x, y):
     return win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, (x, y))
 
-def plotear_a4(ruta):
-    try:
-        acad = win32com.client.GetActiveObject("AutoCAD.Application")
-    except:
-        print("Erro: AutoCAD não está ativo.")
-        return
-
+# Função para realizar a plotagem no formato A4
+def plot_to_pdf(folder_path, acad):
     doc = acad.ActiveDocument
-    
-    nombre = doc.Name
-    nom = nombre[:-4]
-    
+    nom = doc.Name[:-4]
     inicio = 1
-   
+
     try:
         doc.SelectionSets.Item("SS1").Delete()
     except:
         pass
-    
+
     ssget1 = doc.SelectionSets.Add("SS1")
     ssget1.SelectOnScreen()
-    
-    total_selecionado = len(ssget1)
-    formato_numero = "{:02d}-{:02d}"
+
+    total_selected = len(ssget1)
+    file_format = "{:02d}-{:02d}"
 
     k = 0
     z = inicio - 1
-    
-    for i, entity in enumerate(ssget1):
+
+    layout = doc.ActiveLayout
+    layout.ConfigName = "DWG To PDF.pc3"
+    layout.PaperUnits = 1
+    layout.CenterPlot = True
+    layout.UseStandardScale = False
+    layout.StyleSheet = "CTB_ARA.ctb"
+    layout.PlotType = 4
+    layout.StandardScale = 0
+    layout.PlotWithLineweights = False
+
+    for entity in ssget1:
         name = entity.EntityName
-        
+
         if name == 'AcDbPolyline':
             k += 1
-            numero_arquivo = formato_numero.format(k + z, total_selecionado)
-            plotfile = os.path.join(ruta, f"{nom}-{numero_arquivo}.pdf")
-            enti_pl1 = entity
-            m = entity.Coordinates
-            n = bounding(m)
-            P1 = SPOINT(n[0], n[1])
-            P2 = SPOINT(n[2], n[3])
+            file_number = file_format.format(k + z, total_selected)
+            plotfile = os.path.join(folder_path, f"{nom}-{file_number}.pdf")
+            coordinates = entity.Coordinates
+            bounds = bounding(coordinates)
+            P1 = create_point_object(bounds[0], bounds[1])
+            P2 = create_point_object(bounds[2], bounds[3])
 
-            largura = abs(n[2] - n[0])
-            altura = abs(n[3] - n[1])
+            width = abs(bounds[2] - bounds[0])
+            height = abs(bounds[3] - bounds[1])
 
-            doc.ActiveLayout.ConfigName = "DWG To PDF.pc3"
-            if largura > altura:
-                doc.ActiveLayout.CanonicalMediaName = "ISO_full_bleed_A0_(841.00_x_1189.00_MM)"
+            if width > height:
+                layout.CanonicalMediaName = "ISO_full_bleed_A0_(841.00_x_1189.00_MM)"
             else:
-                doc.ActiveLayout.CanonicalMediaName = "ISO_full_bleed_A1_(841.00_x_594.00_MM)"
-            
-            doc.ActiveLayout.SetWindowToPlot(P1, P2)
-            doc.ActiveLayout.PaperUnits = 1
-            doc.ActiveLayout.CenterPlot = True
+                layout.CanonicalMediaName = "ISO_full_bleed_A1_(841.00_x_594.00_MM)"
+
+            layout.SetWindowToPlot(P1, P2)
+            layout.CenterPlot = True
             doc.Plot.QuietErrorMode = False
-            doc.ActiveLayout.UseStandardScale = False
-            doc.ActiveLayout.SetCustomScale(1, 1)
+            layout.SetCustomScale(1, 1)
             doc.SetVariable('BACKGROUNDPLOT', 0)
-            doc.Regen(1)
-            doc.ActiveLayout.CenterPlot = True
-            doc.ActiveLayout.PlotRotation = 1
-            doc.ActiveLayout.StyleSheet = "CTB_ARA.ctb"
-            doc.ActiveLayout.PlotType = 4
-            doc.ActiveLayout.StandardScale = 0
-            doc.ActiveLayout.PlotWithLineweights = False
+            layout.PlotRotation = 1  # Change this to the desired plot rotation
             doc.Plot.PlotToFile(plotfile)
 
+    messagebox.showinfo("Plotagem Concluída", "Todas as plotagens foram concluídas com sucesso.")
+
+# Função para lidar com a seleção de pasta
 def browse_folder():
     folder_path = filedialog.askdirectory()
-    folder_var.set(folder_path)
+    if folder_path:
+        folder_var.set(folder_path)
 
+# Função para iniciar a plotagem
 def start_plotting():
     folder_path = folder_var.get()
     if folder_path:
-        plotear_a4(folder_path)
-        status_var.set("Processo de plotagem concluído.")
+        try:
+            acad = win32com.client.GetActiveObject("AutoCAD.Application")
+            plot_to_pdf(folder_path, acad)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Ocorreu um erro durante a plotagem: {str(e)}")
     else:
-        status_var.set("Por favor, selecione uma pasta.")
+        messagebox.showerror("Erro", "Por favor, selecione uma pasta para salvar os arquivos PDF.")
 
+# Configurações da janela principal
 root = tk.Tk()
 root.title("Manel Plot Tool")
-root.configure(bg='#2C2F33')  # Cor de fundo cinza escuro
-
-
-# Centralizar a janela
-window_width = 700
-window_height = 150
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-x_cordinate = int((screen_width/2) - (window_width/2))
-y_cordinate = int((screen_height/2) - (window_height/2))
-root.geometry("{}x{}+{}+{}".format(window_width, window_height, x_cordinate, y_cordinate))
+root.geometry("300x250")
+root.configure(bg='#1C1A27')
 
 folder_var = tk.StringVar()
-status_var = tk.StringVar()
-status_var.set("Aguardando início da plotagem...")
 
-# Estilos para os widgets
-button_style = {
-    'bg': '#3700B3',  # Cor vermelha para o botão
-    'fg': '#FFFFFF',  # Texto em branco
-    'relief': 'flat'  # Botão sem relevo
-}
+# Frame principal
+frame = tk.Frame(root, bg='#1C1A27')
+frame.pack(expand=True)
 
-label_style = {
-    'font': ('Noto Sans', 12),
-    'bg': '#2C2F33',  # Cor de fundo cinza escuro
-    'fg': '#FFFFFF'   # Texto em branco
-}
+# Título
+label_title = tk.Label(frame, text="Manel Plot Tool", font=('Noto Sans', 20, 'bold'), bg='#1C1A27', fg='#ECF0F1')
+label_title.pack(pady=10)
 
-entry_style = {
-    'font': ('Noto Sans', 10),
-    'bg': '#FFFFFF',  # Cor de fundo branca para o Entry
-    'fg': '#000000'   # Texto em preto
-}
+# Label e entrada para selecionar pasta
+label_folder = tk.Label(frame, text="Selecione a pasta:", font=('Noto Sans', 12), bg='#1C1A27', fg='#ECF0F1')
+label_folder.pack(pady=5)
 
-# Criar widgets
-label_folder = tk.Label(root, text="Selecione a pasta de arquivos:", **label_style)
-entry_folder = tk.Entry(root, textvariable=folder_var, width=50, **entry_style)
-button_browse = tk.Button(root, text="Navegar", command=browse_folder, **button_style)
-button_start = tk.Button(root, text="Iniciar Plotagem", command=start_plotting, **button_style)
-label_status = tk.Label(root, textvariable=status_var, **label_style)
+entry_folder = tk.Entry(frame, textvariable=folder_var, font=('Noto Sans', 8), width=30)
+entry_folder.pack(pady=5, padx=10, ipady=3)
 
-# Posicionamento dos widgets
-label_folder.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-entry_folder.grid(row=0, column=1, padx=5, pady=5)
-button_browse.grid(row=0, column=2, padx=5, pady=5)
-button_start.grid(row=1, column=0, columnspan=3, padx=5, pady=5)
-label_status.grid(row=2, column=0, columnspan=3, padx=5, pady=5)
+# Botão para navegar
+button_browse = tk.Button(frame, text="Navegar", command=browse_folder, bg='#E8083E', fg='#ECF0F1', font=('Noto Sans', 12, 'bold'), width=15, height=2, activebackground='#02864A', activeforeground='#1C1A27', borderwidth=0, highlightthickness=0)
+button_browse.pack(pady=10)
+
+# Botão para iniciar a plotagem
+button_start = tk.Button(frame, text="Iniciar Plotagem", command=start_plotting, bg='#E8083E', fg='#ECF0F1', font=('Noto Sans', 12, 'bold'), width=15, height=2, activebackground='#02864A', activeforeground='#1C1A27', borderwidth=0, highlightthickness=0)
+button_start.pack()
 
 root.mainloop()
